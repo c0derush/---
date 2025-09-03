@@ -8,4 +8,4 @@ if [ ! -f "$LOG" ]; then
   exit 1
 fi
 
-python log_summarysimple.py "$LOG"
+python log_summary_simple.py "$LOG"
