@@ -5,10 +5,9 @@ from collections import Counter
 from datetime import datetime, timezone
 
 def hour_from_iso8601_z(s):
+    # 转换格式为可读取
     try:
-        # "2025-08-27T10:15:30Z" -> replace Z with +00:00 then fromisoformat
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        # 转为 UTC，取小时
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         else:
@@ -17,17 +16,12 @@ def hour_from_iso8601_z(s):
     except Exception:
         return None
 
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python log_summary_simple.py /path/to/access.log", file=sys.stderr)
-        sys.exit(1)
-
-    path = sys.argv[1]
-    total_requests = 0
-    sum_response = 0.0
-    resp_count = 0
-    status_counts = Counter()
-    hour_counts = Counter()
+def summarize(path):
+    total = 0
+    sum_rt = 0.0
+    rt_count = 0
+    status_counter = Counter()
+    hour_counter = Counter()
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -35,49 +29,58 @@ def main():
             if not line:
                 continue
             try:
-                obj = json.loads(line)
+                rec = json.loads(line)
             except Exception:
-                continue  # skip malformed
+                continue
 
-            total_requests += 1
+            total += 1    # 统计总请求数
 
-            # response time
-            rt = obj.get("response_time_ms")
+            rt = rec.get("response_time_ms")
+            # 计算总响应时间
             if rt is not None:
                 try:
-                    rv = float(rt)
-                    sum_response += rv
-                    resp_count += 1
+                    sum_rt += float(rt)
+                    rt_count += 1
                 except Exception:
                     pass
 
-            # status
-            st = obj.get("http_status")
+            st = rec.get("http_status")
+            # 统计 HTTP 状态码分布
             if st is not None:
-                status_counts[str(int(st))] += 1
+                try:
+                    status_counter[str(int(st))] += 1
+                except Exception:
+                    pass
 
-            # hour
-            ts = obj.get("timestamp")
+            ts = rec.get("timestamp")
             if ts:
                 h = hour_from_iso8601_z(ts)
                 if h is not None:
-                    hour_counts[h] += 1
+                    # 统计每小时的请求数
+                    hour_counter[h] += 1
 
-    avg_response = (sum_response / resp_count) if resp_count > 0 else 0.0
+    # 计算平均响应时间
+    avg_rt = (sum_rt / rt_count) if rt_count > 0 else 0.0
 
-    busiest_hour = None
-    if hour_counts:
-        maxc = max(hour_counts.values())
-        candidates = [h for h,c in hour_counts.items() if c == maxc]
-        busiest_hour = min(candidates)
-    # 构造输出
-    out = {
-        "total_requests": total_requests,
-        "average_response_time_ms": avg_response,
-        "status_code_counts": dict(status_counts),
-        "busiest_hour": busiest_hour
+    busiest = None
+    # 选择最忙的小时，先取最大请求数，并列时选择最小值
+    if hour_counter:
+        maxc = max(hour_counter.values())
+        busiest = min(h for h,c in hour_counter.items() if c == maxc)
+
+    return {
+        "total_requests": total,
+        "average_response_time_ms": avg_rt,
+        "status_code_counts": dict(status_counter),
+        "busiest_hour": busiest
     }
-    print(json.dumps(out, ensure_ascii=False, indent=2))
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python log_summary.py /path/to/access.log", file=sys.stderr)
+        sys.exit(1)
+    path = sys.argv[1]
+    print(json.dumps(summarize(path), ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()
